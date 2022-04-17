@@ -10,7 +10,13 @@ import {
   ANOMALYDRILLDOWNFAILURE,
   ANOMALYSETTINGREQUEST,
   ANOMALYSETTINGSUCCESS,
-  ANOMALYSETTINGFAILURE
+  ANOMALYSETTINGFAILURE,
+  RETRAINFAILURE,
+  RETRAINREQUEST,
+  RETRAINSUCCESS,
+  ANOMALYDOWNLOADREQUEST,
+  ANOMALYDOWNLOADSUCCESS,
+  ANOMALYDOWNLOADFAILURE
 } from '../actions/ActionConstants';
 
 const initialState = {
@@ -25,7 +31,11 @@ const initialState = {
   anomalyDrilldownError: false,
   anomalySettingLoading: false,
   anomalySettingData: '',
-  anomalySettingError: false
+  anomalySettingError: false,
+  retrain: false,
+  anomalyCsv: [],
+  anomalyCsvLoading: false,
+  anomalyCsvError: false
 };
 
 export const anomaly = (state = initialState, action) => {
@@ -116,11 +126,56 @@ export const anomaly = (state = initialState, action) => {
         anomalySettingData: []
       };
     }
+    case RETRAINREQUEST: {
+      return {
+        ...state,
+        retrain: false
+      };
+    }
+    case RETRAINSUCCESS: {
+      return {
+        ...state,
+        retrain: true
+      };
+    }
+    case RETRAINFAILURE: {
+      return {
+        ...state,
+        retrain: false
+      };
+    }
+    case ANOMALYDOWNLOADREQUEST: {
+      return {
+        ...state,
+        anomalyCsvLoading: true
+      };
+    }
+    case ANOMALYDOWNLOADSUCCESS: {
+      return {
+        ...state,
+        anomalyCsvLoading: false,
+        anomalyCsv: action.data
+      };
+    }
+    case ANOMALYDOWNLOADFAILURE: {
+      return {
+        ...state,
+        anomalyCsvLoading: false,
+        anomalyCsvError: true
+      };
+    }
     case 'RESET': {
       return {
         ...state,
         anomalyDrilldownData: '',
-        anomalyQualityData: ''
+        anomalyQualityData: '',
+        retrain: false
+      };
+    }
+    case 'RESET_CSV': {
+      return {
+        ...state,
+        anomalyCsv: []
       };
     }
     case 'RESET_DRILL': {
@@ -128,6 +183,11 @@ export const anomaly = (state = initialState, action) => {
         ...state,
         anomalyDrilldownData: '',
         anomalyDrilldownError: false
+      };
+    }
+    case 'RESET_ANOMALY': {
+      return {
+        ...initialState
       };
     }
 

@@ -1,8 +1,6 @@
 """Provides constants for Chaos Genius."""
 
 SUPPORTED_TIMEZONES = {
-    "GMT": "",
-    "UTC": "",
     "ECT": "GMT+01:00",
     "EET": "GMT+02:00",
     "ART": "GMT+02:00",

@@ -15,16 +15,24 @@ from flask import (  # noqa: F401
     url_for,
     jsonify,
 )
+import pandas as pd
+from chaos_genius.connectors import get_sqla_db_conn
 
+from chaos_genius.controllers.kpi_controller import (
+    delete_anomaly_output_for_kpi,
+    delete_rca_output_for_kpi,
+    get_anomaly_count,
+    get_kpi_data_from_id,
+)
 from chaos_genius.core.utils.kpi_validation import validate_kpi
 from chaos_genius.core.utils.round import round_number
+from chaos_genius.core.utils.utils import randomword
 from chaos_genius.databases.models.kpi_model import Kpi
 from chaos_genius.databases.models.anomaly_data_model import AnomalyDataOutput
 from chaos_genius.databases.models.data_source_model import DataSource
 from chaos_genius.databases.models.rca_data_model import RcaData
 from chaos_genius.extensions import cache, db
 from chaos_genius.databases.db_utils import chech_editable_field
-from chaos_genius.controllers.kpi_controller import get_kpi_data_from_id
 from chaos_genius.controllers.dashboard_controller import (
     create_dashboard_kpi_mapper,
     get_mapper_obj_by_dashboard_ids,
@@ -57,6 +65,8 @@ def kpi():
         data = request.get_json()
         data["dimensions"] = [] if data["dimensions"] is None else data["dimensions"]
 
+        data_source = DataSource.get_by_id(data["data_source"]).as_dict
+
         if data.get("kpi_query", "").strip():
             data["kpi_query"] = data["kpi_query"].strip()
             # remove trailing semicolon
@@ -78,11 +88,13 @@ def kpi():
             dimensions=data.get("dimensions"),
         )
         # Perform KPI Validation
-        status, message = validate_kpi(new_kpi.as_dict)
+        status, message, tz_aware = validate_kpi(new_kpi.as_dict, check_tz_aware=True)
         if status is not True:
             return jsonify(
                 {"error": message, "status": "failure", "is_critical": "true"}
             )
+
+        new_kpi.timezone_aware = tz_aware
 
         new_kpi.save(commit=True)
 
@@ -93,7 +105,6 @@ def kpi():
 
         # TODO: Fix circular import error
         from chaos_genius.jobs.anomaly_tasks import ready_rca_task
-
         # run rca as soon as new KPI is added
         rca_task = ready_rca_task(new_kpi.id)
         if rca_task is None:
@@ -283,11 +294,13 @@ def kpi_meta_info():
     logger.info("kpi meta info")
     return jsonify({"data": Kpi.meta_info()})
 
-
 @blueprint.route("/<int:kpi_id>/update", methods=["PUT"])
 def edit_kpi(kpi_id):
     """edit kpi details."""
     status, message = "", ""
+    do_not_run_analytics_list = ["name", "dashboards"]
+    run_analytics = False
+
     try:
         kpi_obj = Kpi.get_by_id(kpi_id)
         data = request.get_json()
@@ -297,8 +310,39 @@ def edit_kpi(kpi_id):
             dashboard_id_list = list(set(dashboard_id_list))
 
             for key, value in data.items():
+                if key not in do_not_run_analytics_list:
+                    run_analytics = True
                 if chech_editable_field(meta_info, key):
                     setattr(kpi_obj, key, value)
+            if run_analytics:
+                logger.info(
+                    "Deleting analytics output and re-running tasks since KPI was "
+                    + f"edited for KPI ID: {kpi_id}"
+                )
+
+                from chaos_genius.jobs.anomaly_tasks import ready_rca_task
+                rca_task = ready_rca_task(kpi_id)
+                if rca_task is not None:
+                    delete_rca_output_for_kpi(kpi_id)
+                    rca_task.apply_async()
+                    logger.info(f"RCA started for KPI ID after editing: {kpi_id}")
+                else:
+                    logger.info(
+                        "RCA failed for KPI ID since KPI does not exist after editing:"
+                        + f" {kpi_id}"
+                    )
+
+                from chaos_genius.jobs.anomaly_tasks import ready_anomaly_task
+                anomaly_task = ready_anomaly_task(kpi_id)
+                if anomaly_task is not None:
+                    delete_anomaly_output_for_kpi(kpi_id)
+                    anomaly_task.apply_async()
+                    logger.info(f"Anomaly started for KPI ID after editing: {kpi_id}")
+                else:
+                    logger.info(
+                        "Anomaly failed for KPI ID since KPI does not exist after "
+                        + f"editing: {kpi_id}"
+                    )
 
             mapper_dict = edit_kpi_dashboards(kpi_id, dashboard_id_list)
             kpi_obj.save(commit=True)
@@ -349,28 +393,3 @@ def trigger_analytics(kpi_id):
         print(f"Could not analytics since newly added KPI was not found: {kpi_id}")
     return jsonify({"message": "RCA and Anomaly triggered successfully"})
 
-
-def find_percentage_change(curr_val, prev_val):
-
-    if prev_val == 0:
-        return "--"
-
-    change = curr_val - prev_val
-    percentage_change = (change / prev_val) * 100
-    return str(round_number(percentage_change))
-
-
-def get_anomaly_count(kpi_id, timeline):
-
-    curr_date = datetime.now().date()
-    (_, _), (sd, _) = TIME_RANGES_BY_KEY[timeline]["function"](curr_date)
-
-    # TODO: Add the series type filter
-    anomaly_data = AnomalyDataOutput.query.filter(
-        AnomalyDataOutput.kpi_id == kpi_id,
-        AnomalyDataOutput.anomaly_type == "overall",
-        AnomalyDataOutput.is_anomaly == 1,
-        AnomalyDataOutput.data_datetime >= sd,
-    ).all()
-
-    return len(anomaly_data)

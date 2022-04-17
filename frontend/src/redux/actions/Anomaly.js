@@ -13,7 +13,13 @@ import {
   ANOMALYDRILLDOWNFAILURE,
   ANOMALYSETTINGREQUEST,
   ANOMALYSETTINGSUCCESS,
-  ANOMALYSETTINGFAILURE
+  ANOMALYSETTINGFAILURE,
+  RETRAINFAILURE,
+  RETRAINREQUEST,
+  RETRAINSUCCESS,
+  ANOMALYDOWNLOADREQUEST,
+  ANOMALYDOWNLOADSUCCESS,
+  ANOMALYDOWNLOADFAILURE
 } from './ActionConstants';
 
 export const anomalyDetectionRequest = () => {
@@ -60,6 +66,40 @@ export const anomalyDetection = (kpi, tab) => {
       dispatch(anomalyDetectionFailure());
     } else if (data && status === 200) {
       dispatch(anomalyDetectionSuccess(data));
+    }
+  };
+};
+
+export const retrainRequested = () => {
+  return {
+    type: RETRAINREQUEST
+  };
+};
+
+export const retrainSuccess = (response) => {
+  return {
+    type: RETRAINSUCCESS,
+    data: response
+  };
+};
+
+export const retrainFailure = () => {
+  return {
+    type: RETRAINFAILURE
+  };
+};
+
+export const setRetrain = (kpi) => {
+  return async (dispatch) => {
+    dispatch(retrainRequested());
+
+    const { data, error, status } = await getRequest({
+      url: `${BASE_URL}/api/anomaly-data/${kpi}/retrain`
+    });
+    if (error) {
+      dispatch(retrainFailure());
+    } else if (data && status === 200) {
+      dispatch(retrainSuccess(data));
     }
   };
 };
@@ -168,6 +208,39 @@ export const anomalySetting = (id) => {
       dispatch(anomalySettingFailure());
     } else if (data && status === 200) {
       dispatch(anomalySettingSuccess(data));
+    }
+  };
+};
+
+export const anomalyDownloadRequest = () => {
+  return {
+    type: ANOMALYDOWNLOADREQUEST
+  };
+};
+
+export const anomalyDownloadSuccess = (response) => {
+  return {
+    type: ANOMALYDOWNLOADSUCCESS,
+    data: response
+  };
+};
+
+export const anomalyDownloadFailure = () => {
+  return {
+    type: ANOMALYDOWNLOADFAILURE
+  };
+};
+
+export const anomalyDownloadCsv = (id) => {
+  return async (dispatch) => {
+    dispatch(anomalyDownloadRequest());
+    const { data, error, status } = await getRequest({
+      url: `${BASE_URL}/api/downloads/${id}/anomaly_data`
+    });
+    if (error) {
+      dispatch(anomalyDownloadFailure());
+    } else if (data && status === 200) {
+      dispatch(anomalyDownloadSuccess(data));
     }
   };
 };

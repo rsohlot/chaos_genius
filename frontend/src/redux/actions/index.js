@@ -6,9 +6,10 @@ import {
   deleteDatasource,
   getDatasourceMetaInfo,
   getDatasourceById,
-  updateDatasourceById
+  updateDatasourceById,
+  setSyncSchema,
+  getTimeZones
 } from './DataSources';
-//import { getAllDataSources } from './DataSources';
 import {
   getAllKpiExplorer,
   getAllKpiExplorerForm,
@@ -54,7 +55,8 @@ import {
   anomalyDetection,
   getAnomalyQualityData,
   anomalyDrilldown,
-  anomalySetting
+  anomalySetting,
+  setRetrain
 } from './Anomaly';
 import { kpiSettingSetup, kpiEditSetup, settingMetaInfo } from './setting';
 import {
@@ -97,9 +99,11 @@ export {
   getOnboardingStatus,
   getTestQuery,
   anomalyDetection,
+  setRetrain,
   getAnomalyQualityData,
   anomalyDrilldown,
   kpiDisable,
+  getTimeZones,
   getAllAlertEmail,
   getChannelStatus,
   getEditChannel,
@@ -137,5 +141,6 @@ export {
   getTimeCuts,
   getVersionSetting,
   getReportSettingTime,
-  saveReportSettingTime
+  saveReportSettingTime,
+  setSyncSchema
 };

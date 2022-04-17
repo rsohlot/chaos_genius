@@ -24,6 +24,7 @@ class Kpi(PkModel):
     datetime_column = Column(db.Text(), nullable=False)
     filters = Column(db.JSON)
     dimensions = Column(db.JSON)
+    timezone_aware = Column(db.Boolean(), nullable=False, default=False)
 
     run_anomaly = Column(db.Boolean(), default=True)
     anomaly_params = Column(db.JSON)
@@ -59,6 +60,7 @@ class Kpi(PkModel):
             "aggregation": self.aggregation,
             "datetime_column": self.datetime_column,
             "dimensions": self.dimensions,
+            "timezone_aware": self.timezone_aware,
             "run_anomaly": self.run_anomaly,
             "anomaly_params": self.anomaly_params,
             "scheduler_params": self.scheduler_params,
@@ -85,6 +87,7 @@ class Kpi(PkModel):
             "datetime_column": self.datetime_column,
             "filters": self.filters,
             "dimensions": self.dimensions,
+            "timezone_aware": self.timezone_aware,
             "run_anomaly": self.run_anomaly,
             "anomaly_params": self.anomaly_params,
             "scheduler_params": self.scheduler_params,
@@ -94,6 +97,7 @@ class Kpi(PkModel):
             "active": self.active,
             "created_at": self.created_at,
         }
+
 
     @classmethod
     def meta_info(cls):
@@ -117,43 +121,63 @@ class Kpi(PkModel):
                     "is_sensitive": False,
                 },
                 {
+                    "name": "schema_name",
+                    "is_editable": True,
+                    "is_sensitive": False
+                },
+                {
                     "name": "kpi_type",
-                    "is_editable": False,
+                    "is_editable": True,
                     "is_sensitive": False,
                 },
                 {
                     "name": "kpi_query",
-                    "is_editable": False,
+                    "is_editable": True,
                     "is_sensitive": False,
                 },
                 {
                     "name": "table_name",
-                    "is_editable": False,
+                    "is_editable": True,
                     "is_sensitive": False,
                 },
                 {
                     "name": "metric",
-                    "is_editable": False,
+                    "is_editable": True,
                     "is_sensitive": False,
                 },
                 {
                     "name": "aggregation",
-                    "is_editable": False,
+                    "is_editable": True,
                     "is_sensitive": False,
+                    "options": [{
+                        "label": "Mean",
+                        "value": "mean"
+                    }, {
+                        "label": "Sum",
+                        "value": "sum"
+                    }, {
+                        "label": "Count",
+                        "value": "count"
+                    }]
                 },
                 {
                     "name": "datetime_column",
-                    "is_editable": False,
+                    "is_editable": True,
                     "is_sensitive": False,
                 },
                 {
                     "name": "filters",
-                    "is_editable": False,
+                    "is_editable": True,
                     "is_sensitive": False,
                 },
                 {
                     "name": "dimensions",
-                    "is_editable": False,
+                    "is_editable": True,
+                    "is_sensitive": False,
+                },
+                {
+                    "name": "timezone_aware",
+                    "is_editable": True,
                     "is_sensitive": False,
                 },
                 # TODO: Fix this with some better implementation

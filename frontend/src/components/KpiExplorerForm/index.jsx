@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
 import { useToast } from 'react-toast-wnm';
 import { useDispatch, useSelector } from 'react-redux';
-import Select from 'react-select';
+import Select, { components } from 'react-select';
 import Modal from 'react-modal';
 
 import Play from '../../assets/images/play-green.png';
@@ -41,12 +41,6 @@ const datasettype = [
   }
 ];
 
-const aggregate = [
-  { value: 'mean', label: 'Mean' },
-  { value: 'count', label: 'Count' },
-  { value: 'sum', label: 'Sum' }
-];
-
 const customSingleValue = ({ data }) => (
   <div className="input-select">
     <div className="input-select__single-value">
@@ -76,6 +70,9 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
     dashboard: ''
   });
 
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [aggregate, setAggregate] = useState([]);
+
   const [formdata, setFormdata] = useState({
     kpiname: '',
     datasource: '',
@@ -94,6 +91,7 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
   });
 
   const [editedFormData, setEditedFormData] = useState({});
+  const [needForCleanup, setNeedForCleanUp] = useState({});
 
   const [errorMsg, setErrorMsg] = useState({
     kpiname: false,
@@ -140,7 +138,8 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
     kpiMetaInfoData,
     kpiEditData,
     kpiUpdateLoading,
-    kpiUpdateData
+    kpiUpdateData,
+    supportedAgg
   } = useSelector((state) => state.kpiExplorer);
 
   const { dashboardList } = useSelector((state) => state.DashboardHome);
@@ -152,8 +151,8 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
   useEffect(() => {
     dispatchGetAllKpiExplorerForm();
     dispatchGetAllDashboard();
+    dispatch(getEditMetaInfo());
     if (data[2] === 'edit') {
-      dispatch(getEditMetaInfo());
       dispatch(getKpibyId(kpiId));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,6 +165,18 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
 
   const dispatchGetAllDashboard = () => {
     dispatch(getDashboard());
+  };
+  const CustomOption = (props) => {
+    const { data, innerRef, innerProps } = props;
+    if (data.value === 'Data Sync in Progress...') {
+      return (
+        <div ref={innerRef} {...innerProps} className="data-sync-cls">
+          <span>{data.label}</span>
+        </div>
+      );
+    }
+
+    return <components.Option {...props} />;
   };
 
   useEffect(() => {
@@ -202,6 +213,36 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
         label: kpiEditData?.kpi_type,
         value: kpiEditData?.kpi_type
       });
+
+      if (
+        kpiEditData?.data_source !== null &&
+        kpiEditData?.data_source !== undefined
+      ) {
+        setDataSourceId(kpiEditData?.data_source);
+        if (kpiEditData?.schema_name) {
+          dispatchGetTableListOnSchema({
+            datasource_id: kpiEditData?.data_source,
+            schema: kpiEditData?.schema_name
+          });
+        }
+        if (kpiEditData?.table_name) {
+          const obj = {
+            datasource_id: kpiEditData?.data_source,
+            schema: kpiEditData?.schema_name ? kpiEditData?.schema_name : null,
+            table_name: kpiEditData?.table_name
+          };
+          dispatch(getTableinfoData(obj));
+        }
+        if (kpiEditData?.kpi_query) {
+          const data = {
+            data_source_id: kpiEditData?.data_source,
+            from_query: true,
+            query: kpiEditData?.kpi_query
+          };
+          dispatch(getTestQuery(data, true));
+        }
+      }
+
       setFormdata(obj);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -223,9 +264,10 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
     if (testQueryData) {
       testQueryData &&
         testQueryData.data &&
-        testQueryData.data.tables &&
-        testQueryData.data.tables.query &&
-        testQueryData.data.tables.query.table_columns.forEach((item) => {
+        testQueryData.data.data &&
+        testQueryData.data.data.tables &&
+        testQueryData.data.data.tables.query &&
+        testQueryData.data.data.tables.query.table_columns.forEach((item) => {
           arr.push({
             label: item.name,
             value: item.name
@@ -374,18 +416,28 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
   }, [kpiSubmit, kpiUpdateData]);
 
   useEffect(() => {
-    if (testQueryData && testQueryData?.status === 'success') {
+    if (
+      testQueryData &&
+      !testQueryData.isEditing &&
+      testQueryData.data &&
+      testQueryData.data?.status === 'success'
+    ) {
       customToast({
         type: 'success',
         header: 'Test Connection Successful',
-        description: testQueryData.msg
+        description: testQueryData.data.msg
       });
     }
-    if (testQueryData && testQueryData?.status === 'failure') {
+    if (
+      testQueryData &&
+      !testQueryData.isEditing &&
+      testQueryData.data &&
+      testQueryData.data?.status === 'failure'
+    ) {
       customToast({
         type: 'error',
         header: 'Test Connection Failed',
-        description: testQueryData.msg
+        description: testQueryData.data.msg
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -450,12 +502,28 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
   useEffect(() => {
     if (
       datasourceid &&
-      dataSourceHasSchema &&
       tableListOnSchemaLoading === false &&
       tableListOnSchema &&
       tableListOnSchema.table_names
     ) {
       var optionArr = [];
+      if (kpiFormData && kpiFormData.data && kpiFormData.data.length) {
+        const datasourceIndex = kpiFormData.data.findIndex((datasource) => {
+          return datasource.id === datasourceid;
+        });
+        if (datasourceIndex > -1) {
+          if (
+            kpiFormData.data[datasourceIndex]?.sync_status === 'In Progress'
+          ) {
+            optionArr.push({
+              index: -1,
+              value: 'Data Sync in Progress...',
+              label: 'Data Sync in Progress...',
+              isDisabled: true
+            });
+          }
+        }
+      }
       for (const [key, value] of Object.entries(
         tableListOnSchema.table_names
       )) {
@@ -488,6 +556,13 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
   };
 
   useEffect(() => {
+    if (kpiFieldLoading === true) {
+      setOption({
+        ...option,
+        tableoption: [],
+        metricOption: []
+      });
+    }
     if (kpiField) {
       tableOption();
     }
@@ -513,6 +588,23 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
   const schemaNameOption = () => {
     if (schemaNamesList && schemaNamesList.data) {
       var optionArr = [];
+      if (kpiFormData && kpiFormData.data && kpiFormData.data.length) {
+        const datasourceIndex = kpiFormData.data.findIndex((datasource) => {
+          return datasource.id === datasourceid;
+        });
+        if (datasourceIndex > -1) {
+          if (
+            kpiFormData.data[datasourceIndex]?.sync_status === 'In Progress'
+          ) {
+            optionArr.push({
+              index: -1,
+              value: 'Data Sync in Progress...',
+              label: 'Data Sync in Progress...',
+              isDisabled: true
+            });
+          }
+        }
+      }
       for (const [key, value] of Object.entries(schemaNamesList.data)) {
         optionArr.push({
           index: key,
@@ -522,7 +614,8 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
       }
       setOption({
         ...option,
-        tableoption: [],
+        tableoption:
+          kpiEditData && data[2] === 'edit' ? option.tableoption : [],
         schemaOption: optionArr
       });
     }
@@ -532,7 +625,8 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
     setOption({
       ...option,
       schemaOption: [],
-      tableoption: []
+      tableoption: kpiEditData && data[2] === 'edit' ? option.tableoption : [],
+      metricOption: kpiEditData && data[2] === 'edit' ? option.metricOption : []
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataSourceHasSchema]);
@@ -553,47 +647,41 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
         datetimecolumns: '',
         dimensions: []
       });
+      setEditedFormData({
+        ...editedFormData,
+        schema_name: e.value
+      });
+      if (kpiEditData?.schema_name !== e.value) {
+        setNeedForCleanUp({ ...needForCleanup, schema_name: true });
+      } else {
+        const { schema_name, ...newItems } = needForCleanup;
+        setNeedForCleanUp(newItems);
+      }
     }
   };
 
   const tableName = (e) => {
     setErrorMsg({ tablename: false });
-    if (!dataSourceHasSchema && kpiField && kpiField?.tables) {
-      var optionValueArr = [];
-      for (const [key, value] of Object.entries(kpiField.tables)) {
-        const valueData = e.value;
-        if (key === valueData) {
-          value.table_columns.forEach((data) => {
-            optionValueArr.push({
-              value: data.name,
-              label: data.name
-            });
-          });
-        }
-
-        setOption({ ...option, metricOption: optionValueArr });
-        setFormdata({
-          ...formdata,
-          tablename: valueData,
-          metriccolumns: '',
-          aggregate: '',
-          datetimecolumns: '',
-          dimensions: [],
-          dashboardNameList: []
-        });
-      }
-    } else if (dataSourceHasSchema) {
-      const valueData = e.value;
-      setFormdata({
-        ...formdata,
-        tablename: valueData,
-        metriccolumns: '',
-        aggregate: '',
-        datetimecolumns: '',
-        dimensions: []
-      });
-      dispatchGetTableInfoData(valueData);
+    const valueData = e.value;
+    setFormdata({
+      ...formdata,
+      tablename: valueData,
+      metriccolumns: '',
+      aggregate: '',
+      datetimecolumns: '',
+      dimensions: []
+    });
+    setEditedFormData({
+      ...editedFormData,
+      table_name: valueData
+    });
+    if (kpiEditData?.table_name !== e.value) {
+      setNeedForCleanUp({ ...needForCleanup, table_name: true });
+    } else {
+      const { table_name, ...newItems } = needForCleanup;
+      setNeedForCleanUp(newItems);
     }
+    dispatchGetTableInfoData(valueData);
   };
 
   useEffect(() => {
@@ -621,7 +709,7 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
   const dispatchGetTableInfoData = (table) => {
     const obj = {
       datasource_id: datasourceid,
-      schema: formdata.schemaName,
+      schema: dataSourceHasSchema ? formdata.schemaName : null,
       table_name: table
     };
     dispatch(getTableinfoData(obj));
@@ -646,6 +734,16 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
       schemaName: '',
       dashboardNameList: []
     });
+    setEditedFormData({
+      ...editedFormData,
+      kpi_type: e.value
+    });
+    if (kpiEditData?.kpi_type !== e.value) {
+      setNeedForCleanUp({ ...needForCleanup, kpi_type: true });
+    } else {
+      const { kpi_type, ...newItems } = needForCleanup;
+      setNeedForCleanUp(newItems);
+    }
     setTableAdditional({
       ...tableAdditional,
       tabledimension: false
@@ -772,7 +870,11 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
       };
 
       if (data[2] === 'edit' && present) {
-        dispatch(getUpdatekpi(kpiId, editedFormData));
+        if (Object.keys(needForCleanup)?.length) {
+          setEditModalOpen(true);
+        } else {
+          dispatch(getUpdatekpi(kpiId, editedFormData));
+        }
       } else if (data[2] !== 'edit') {
         dispatchgetAllKpiExplorerSubmit(kpiInfo);
       }
@@ -826,6 +928,35 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
     }
   }, [createDashboard]);
 
+  useEffect(() => {
+    let filterList = [];
+    if (kpiMetaInfoData && kpiMetaInfoData.fields) {
+      const options = kpiMetaInfoData?.fields.find((field) => {
+        return field.name === 'aggregation';
+      })?.options;
+
+      for (let i = 0; i < options.length; i++) {
+        for (let j = 0; j < supportedAgg.length; j++) {
+          if (options[i].value === supportedAgg[j]) {
+            filterList.push(options[i]);
+          }
+        }
+      }
+      setAggregate(filterList);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supportedAgg]);
+
+  useEffect(() => {
+    if (kpiMetaInfoData && kpiMetaInfoData.fields) {
+      const options = kpiMetaInfoData?.fields.find((field) => {
+        return field.name === 'aggregation';
+      })?.options;
+      setAggregate(options);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kpiMetaInfoData]);
+
   const editableStatus = (type) => {
     var status = false;
     kpiMetaInfoData &&
@@ -855,122 +986,134 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
   } else {
     return (
       <>
-        {kpiFieldLoading ? (
-          <div className="load ">
-            <div className="preload"></div>
+        <>
+          <div className="form-group">
+            <label>KPI Name *</label>
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Name of your KPI"
+              required
+              name="name"
+              value={formdata.kpiname}
+              disabled={data[2] === 'edit' ? editableStatus('name') : false}
+              onChange={(e) => {
+                setFormdata({ ...formdata, kpiname: e.target.value });
+                setEditedFormData({
+                  ...editedFormData,
+                  [e.target.name]: e.target.value
+                });
+                setErrorMsg((prev) => {
+                  return {
+                    ...prev,
+                    kpiname: false
+                  };
+                });
+              }}
+            />
+            {errorMsg.kpiname === true ? (
+              <div className="connection__fail">
+                <p>Enter KPI Name</p>
+              </div>
+            ) : null}
           </div>
-        ) : (
-          <>
-            <div className="form-group">
-              <label>KPI Name *</label>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Name of your KPI"
-                required
-                name="name"
-                value={formdata.kpiname}
-                disabled={data[2] === 'edit' ? editableStatus('name') : false}
-                onChange={(e) => {
-                  setFormdata({ ...formdata, kpiname: e.target.value });
-                  setEditedFormData({
-                    ...editedFormData,
-                    [e.target.name]: e.target.value
-                  });
-                  setErrorMsg((prev) => {
-                    return {
-                      ...prev,
-                      kpiname: false
-                    };
-                  });
-                }}
-              />
-              {errorMsg.kpiname === true ? (
-                <div className="connection__fail">
-                  <p>Enter KPI Name</p>
-                </div>
-              ) : null}
-            </div>
-            <div className="form-group">
-              <label>Select Data Source*</label>
-              <Select
-                options={option.datasource}
-                classNamePrefix="selectcategory"
-                placeholder="Select Data Source"
-                value={
-                  option.datasource &&
-                  option.datasource.find((opt) => {
-                    if (opt.id === formdata.datasource) {
-                      return opt;
-                    }
-                    return null;
-                  })
-                }
-                isDisabled={
-                  data[2] === 'edit' ? editableStatus('data_source') : false
-                }
-                components={{ SingleValue: customSingleValue }}
-                onChange={(e) => formOption(e)}
-              />
-              {errorMsg.datasource === true ? (
-                <div className="connection__fail">
-                  <p>Select Data Source</p>
-                </div>
-              ) : null}
-            </div>
-            <div className="form-group">
-              <label>Select Dataset Type*</label>
-              <Select
-                value={dataset}
-                options={datasettype}
-                classNamePrefix="selectcategory"
-                placeholder="Select Dataset Type"
-                onChange={(e) => handleDataset(e)}
-                isDisabled={
-                  data[2] === 'edit' ? editableStatus('kpi_type') : false
-                }
-                isOptionSelected
-              />
-              {errorMsg.dataset === true ? (
-                <div className="connection__fail">
-                  <p>Select Dataset Type</p>
-                </div>
-              ) : null}
-            </div>
-            {dataset.value === 'query' ? (
-              // for of for query
-              <>
-                <div className="form-group query-form">
-                  <label>Query *</label>
-                  <textarea
-                    value={formdata.query !== '' ? formdata.query : ''}
-                    disabled={
-                      data[2] === 'edit' ? editableStatus('kpi_query') : false
-                    }
-                    placeholder="Enter Query"
-                    onChange={(e) => {
-                      setFormdata({ ...formdata, query: e.target.value });
-                      setErrorMsg((prev) => {
-                        return {
-                          ...prev,
-                          query: false
-                        };
+          <div className="form-group">
+            <label>Select Data Source*</label>
+            <Select
+              options={option.datasource}
+              classNamePrefix="selectcategory"
+              placeholder="Select Data Source"
+              value={
+                option.datasource &&
+                option.datasource.find((opt) => {
+                  if (opt.id === formdata.datasource) {
+                    return opt;
+                  }
+                  return null;
+                })
+              }
+              isDisabled={
+                data[2] === 'edit' ? editableStatus('data_source') : false
+              }
+              components={{
+                SingleValue: customSingleValue
+              }}
+              onChange={(e) => formOption(e)}
+            />
+            {errorMsg.datasource === true ? (
+              <div className="connection__fail">
+                <p>Select Data Source</p>
+              </div>
+            ) : null}
+          </div>
+          <div className="form-group">
+            <label>Select Dataset Type*</label>
+            <Select
+              value={dataset}
+              options={datasettype}
+              classNamePrefix="selectcategory"
+              placeholder="Select Dataset Type"
+              onChange={(e) => handleDataset(e)}
+              isDisabled={
+                data[2] === 'edit' ? editableStatus('kpi_type') : false
+              }
+              isOptionSelected
+            />
+            {errorMsg.dataset === true ? (
+              <div className="connection__fail">
+                <p>Select Dataset Type</p>
+              </div>
+            ) : null}
+          </div>
+          {dataset.value === 'query' ? (
+            // for of for query
+            <>
+              <div className="form-group query-form">
+                <label>Query *</label>
+                <textarea
+                  value={formdata.query !== '' ? formdata.query : ''}
+                  disabled={
+                    data[2] === 'edit' ? editableStatus('kpi_query') : false
+                  }
+                  placeholder="Enter Query"
+                  onChange={(e) => {
+                    setFormdata({ ...formdata, query: e.target.value });
+                    setEditedFormData({
+                      ...editedFormData,
+                      kpi_query: e.target.value
+                    });
+                    if (kpiEditData?.kpi_query !== e.value) {
+                      setNeedForCleanUp({
+                        ...needForCleanup,
+                        kpi_query: true
                       });
-                    }}></textarea>
-                  {errorMsg.query === true ? (
-                    <div className="connection__fail query_fail">
-                      <p>Enter Query</p>
-                    </div>
-                  ) : null}
-                  <div className="test-query-connection">
-                    <div className="test-query" onClick={() => onTestQuery()}>
-                      <span>
-                        <img src={Play} alt="Play" />
-                        Test Query
-                      </span>
-                    </div>
-                    <div>
-                      {testQueryData && testQueryData?.msg === 'success' && (
+                    } else {
+                      const { kpi_query, ...newItems } = needForCleanup;
+                      setNeedForCleanUp(newItems);
+                    }
+                    setErrorMsg((prev) => {
+                      return {
+                        ...prev,
+                        query: false
+                      };
+                    });
+                  }}></textarea>
+                {errorMsg.query === true ? (
+                  <div className="connection__fail query_fail">
+                    <p>Enter Query</p>
+                  </div>
+                ) : null}
+                <div className="test-query-connection">
+                  <div className="test-query" onClick={() => onTestQuery()}>
+                    <span>
+                      <img src={Play} alt="Play" />
+                      Test Query
+                    </span>
+                  </div>
+                  <div>
+                    {testQueryData &&
+                      testQueryData.data &&
+                      testQueryData.data?.msg === 'success' && (
                         <div className="connection__success">
                           <p>
                             <img src={Success} alt="Success" />
@@ -978,7 +1121,9 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
                           </p>
                         </div>
                       )}
-                      {testQueryData && testQueryData?.msg === 'failed' && (
+                    {testQueryData &&
+                      testQueryData.data &&
+                      testQueryData.data?.msg === 'failed' && (
                         <div className="connection__fail">
                           <p>
                             <img src={Fail} alt="Failed" />
@@ -986,396 +1131,496 @@ const KpiExplorerForm = ({ onboarding, setModal, setText }) => {
                           </p>
                         </div>
                       )}
-                    </div>
                   </div>
                 </div>
-              </> // end of for query
-            ) : (
-              <>
-                {dataSourceHasSchema && (
-                  <div className="form-group">
-                    <label>Schema Name *</label>
-                    <Select
-                      options={option.schemaOption}
-                      value={
-                        formdata.schemaName !== '' && {
-                          label: formdata.schemaName,
-                          value: formdata.schemaName
-                        }
-                      }
-                      isDisabled={
-                        data[2] === 'edit'
-                          ? editableStatus('schema_name')
-                          : false
-                      }
-                      noOptionsMessage={() => {
-                        return schemaListLoading ||
-                          schemaAvailabilityLoading ||
-                          tableListOnSchemaLoading ||
-                          tableInfoLoading
-                          ? 'Loading...'
-                          : 'No Options';
-                      }}
-                      classNamePrefix="selectcategory"
-                      placeholder="Select Schema Name"
-                      onChange={(e) => schemaName(e)}
-                    />
-
-                    {errorMsg.tablename === true ? (
-                      <div className="connection__fail">
-                        <p>Select Schema Name</p>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-
+              </div>
+            </> // end of for query
+          ) : (
+            <>
+              {dataSourceHasSchema && (
                 <div className="form-group">
-                  <label>Table Name *</label>
+                  <label>Schema Name *</label>
                   <Select
-                    options={option.tableoption}
+                    options={option.schemaOption}
                     value={
-                      formdata.tablename !== '' && {
-                        label: formdata.tablename,
-                        value: formdata.tablename
+                      formdata.schemaName !== '' && {
+                        label: formdata.schemaName,
+                        value: formdata.schemaName
                       }
                     }
+                    isDisabled={
+                      data[2] === 'edit' ? editableStatus('schema_name') : false
+                    }
                     noOptionsMessage={() => {
-                      return tableListOnSchemaLoading || tableInfoLoading
+                      return schemaListLoading ||
+                        schemaAvailabilityLoading ||
+                        tableListOnSchemaLoading ||
+                        tableInfoLoading
                         ? 'Loading...'
                         : 'No Options';
                     }}
-                    isDisabled={
-                      data[2] === 'edit' ? editableStatus('table_name') : false
-                    }
+                    components={{
+                      Option: CustomOption
+                    }}
                     classNamePrefix="selectcategory"
-                    placeholder="Select Table"
-                    onChange={(e) => tableName(e)}
+                    placeholder="Select Schema Name"
+                    onChange={(e) => schemaName(e)}
                   />
 
                   {errorMsg.tablename === true ? (
                     <div className="connection__fail">
-                      <p>Select Table Name</p>
+                      <p>Select Schema Name</p>
                     </div>
                   ) : null}
                 </div>
-              </>
-            )}
-            <>
+              )}
+
               <div className="form-group">
-                <label>Metric Columns *</label>
+                <label>Table Name *</label>
                 <Select
-                  options={
-                    option.metricOption && option.metricOption.length !== 0
-                      ? option.metricOption
-                      : []
-                  }
+                  options={option.tableoption}
                   value={
-                    formdata.metriccolumns !== '' && {
-                      label: formdata.metriccolumns,
-                      value: formdata.metriccolumns
+                    formdata.tablename !== '' && {
+                      label: formdata.tablename,
+                      value: formdata.tablename
                     }
                   }
+                  components={{
+                    Option: CustomOption
+                  }}
+                  noOptionsMessage={() => {
+                    return tableListOnSchemaLoading ||
+                      tableInfoLoading ||
+                      kpiFieldLoading
+                      ? 'Loading...'
+                      : 'No Options';
+                  }}
                   isDisabled={
-                    data[2] === 'edit' ? editableStatus('metric') : false
+                    data[2] === 'edit' ? editableStatus('table_name') : false
                   }
                   classNamePrefix="selectcategory"
-                  placeholder="Select Metric Columns"
-                  noOptionsMessage={() => {
-                    return tableInfoLoading ? 'Loading...' : 'No Options';
-                  }}
-                  onChange={(e) => {
-                    setFormdata({ ...formdata, metriccolumns: e.value });
-
-                    setErrorMsg((prev) => {
-                      return {
-                        ...prev,
-                        metriccolumns: false
-                      };
-                    });
-                  }}
+                  placeholder="Select Table"
+                  onChange={(e) => tableName(e)}
                 />
-                {errorMsg.metriccolumns === true ? (
+
+                {errorMsg.tablename === true ? (
                   <div className="connection__fail">
-                    <p>Select Metric Columns</p>
+                    <p>Select Table Name</p>
                   </div>
                 ) : null}
-              </div>
-              <div className="form-group">
-                <label>Aggregate by *</label>
-                <Select
-                  options={aggregate}
-                  value={
-                    formdata.aggregate !== ''
-                      ? {
-                          label: formdata.aggregate,
-                          value: formdata.aggregate
-                        }
-                      : null
-                  }
-                  noOptionsMessage={() => {
-                    return tableInfoLoading ? 'Loading...' : 'No Options';
-                  }}
-                  isDisabled={
-                    data[2] === 'edit' ? editableStatus('aggregation') : false
-                  }
-                  classNamePrefix="selectcategory"
-                  placeholder="Select Aggregate by"
-                  onChange={(e) => {
-                    setFormdata({ ...formdata, aggregate: e.value });
-                    setErrorMsg((prev) => {
-                      return {
-                        ...prev,
-                        aggregate: false
-                      };
-                    });
-                  }}
-                />
-                {errorMsg.aggregate === true ? (
-                  <div className="connection__fail">
-                    <p>Select Aggregate</p>
-                  </div>
-                ) : null}
-              </div>
-              <div className="form-group">
-                <label>Datetime Columns *</label>
-
-                <Select
-                  options={
-                    option.metricOption && option.metricOption.length !== 0
-                      ? option.metricOption
-                      : []
-                  }
-                  value={
-                    formdata.datetimecolumns !== '' && {
-                      label: formdata.datetimecolumns,
-                      value: formdata.datetimecolumns
-                    }
-                  }
-                  noOptionsMessage={() => {
-                    return tableInfoLoading ? 'Loading...' : 'No Options';
-                  }}
-                  isDisabled={
-                    data[2] === 'edit'
-                      ? editableStatus('datetime_column')
-                      : false
-                  }
-                  classNamePrefix="selectcategory"
-                  placeholder="Select Datetime Columns"
-                  onChange={(e) => {
-                    setFormdata({ ...formdata, datetimecolumns: e.value });
-                    setErrorMsg((prev) => {
-                      return {
-                        ...prev,
-                        datetimecolumns: false
-                      };
-                    });
-                  }}
-                />
-                {errorMsg.datetimecolumns === true ? (
-                  <div className="connection__fail">
-                    <p>Select Date Time Columns</p>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="form-group">
-                <label>Dimensions </label>
-                <Select
-                  closeMenuOnSelect={false}
-                  blurInputOnSelect={false}
-                  value={
-                    formdata.dimensions.length !== 0
-                      ? formdata.dimensions.map((el) => {
-                          return {
-                            label: el,
-                            value: el
-                          };
-                        })
-                      : []
-                  }
-                  noOptionsMessage={() => {
-                    return tableInfoLoading ? 'Loading...' : 'No Options';
-                  }}
-                  isMulti
-                  options={
-                    option.metricOption && option.metricOption.length !== 0
-                      ? option.metricOption
-                      : []
-                  }
-                  isDisabled={
-                    data[2] === 'edit' ? editableStatus('dimensions') : false
-                  }
-                  classNamePrefix="selectcategory"
-                  placeholder={
-                    formdata.dimensions.length === 0 && data[2] === 'edit'
-                      ? ''
-                      : 'Select Dimensions'
-                  }
-                  menuPlacement="top"
-                  onChange={(e) => {
-                    setFormdata({
-                      ...formdata,
-                      dimensions: e.map((el) => el.value)
-                    });
-                    setOption({ ...option, datetime_column: e.value });
-                    setErrorMsg((prev) => {
-                      return {
-                        ...prev,
-                        dimension: false
-                      };
-                    });
-                  }}
-                />
-                <div className="channel-tip">
-                  <p>
-                    Select dimensions for enabling sub-dimensional analysis &
-                    drill downs
-                  </p>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Dashboard *</label>
-                <Select
-                  closeMenuOnSelect={false}
-                  blurInputOnSelect={false}
-                  isMulti
-                  options={option.dashboard}
-                  classNamePrefix="selectcategory"
-                  placeholder={
-                    formdata.dashboardNameList.length === 0 &&
-                    data[2] === 'edit'
-                      ? ''
-                      : 'Select'
-                  }
-                  menuPlacement="top"
-                  value={
-                    formdata.dashboardNameList.length !== 0
-                      ? formdata.dashboardNameList
-                      : []
-                  }
-                  isDisabled={
-                    data[2] === 'edit' ? editableStatus('dashboards') : false
-                  }
-                  onChange={(e) => {
-                    var arr = [];
-                    e.length !== 0
-                      ? e.forEach((data) => {
-                          if (data.value === 'newdashboard') {
-                            setIsOpen(true);
-                          } else if (data.value !== 'newdashboard') {
-                            arr.push(data);
-                            setEditedFormData({
-                              ...editedFormData,
-                              dashboards: arr.map((el) => el.value)
-                            });
-                            setFormdata({
-                              ...formdata,
-                              dashboardNameList: arr
-                            });
-                          }
-                        })
-                      : onEditData(e, 'dashboards');
-
-                    setErrorMsg((prev) => {
-                      return {
-                        ...prev,
-                        dashboardNameList: false
-                      };
-                    });
-                  }}
-                />
-                {errorMsg.dashboardNameList === true ? (
-                  <div className="connection__fail">
-                    <p>Select Dashboard</p>
-                  </div>
-                ) : null}
-              </div>
-              <div className="form-action">
-                <button
-                  className={
-                    kpiSubmitLoading || kpiUpdateLoading
-                      ? 'btn black-button btn-loading'
-                      : 'btn black-button'
-                  }
-                  onClick={() => {
-                    handleSubmit();
-                  }}>
-                  <div className="btn-spinner">
-                    <div className="spinner-border" role="status">
-                      <span className="visually-hidden">Loading...</span>
-                    </div>
-                    <span>Loading...</span>
-                  </div>
-                  <div className="btn-content">
-                    {data[2] === 'edit' ? (
-                      <span>Save Changes</span>
-                    ) : (
-                      <span>Add KPI</span>
-                    )}
-                  </div>
-                </button>
               </div>
             </>
-            <Modal
-              isOpen={isOpen}
-              shouldCloseOnOverlayClick={false}
-              portalClassName="dashboardmodal">
-              <div className="modal-close">
-                <img src={Close} alt="Close" onClick={closeModal} />
-              </div>
-              <div className="modal-head">
-                <h3>Create New Dashboard</h3>
-              </div>
-              <div className="modal-body">
-                <div className="modal-contents">
-                  <div className="form-group">
-                    <label>Dashboard Name *</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder="Dashboard Name"
-                      onChange={(e) => {
-                        setErrorMsg({ ...errorMsg, dashboardName: false });
-                        setFormdata({
-                          ...formdata,
-                          dashboardName: e.target.value
-                        });
-                      }}
-                    />
-                    {errorMsg.dashboardName === true ? (
-                      <div className="connection__fail">
-                        <p>Enter Dashboard Name</p>
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="next-step-navigate">
-                    <button className="btn white-button" onClick={closeModal}>
-                      <span>Cancel</span>
-                    </button>
-                    <button
-                      className={
-                        createDashboardLoading
-                          ? 'btn black-button btn-loading'
-                          : 'btn black-button'
+          )}
+          <>
+            <div className="form-group">
+              <label>Metric Columns *</label>
+              <Select
+                options={
+                  option.metricOption && option.metricOption.length !== 0
+                    ? option.metricOption
+                    : []
+                }
+                value={
+                  formdata.metriccolumns !== '' && {
+                    label: formdata.metriccolumns,
+                    value: formdata.metriccolumns
+                  }
+                }
+                isDisabled={
+                  data[2] === 'edit' ? editableStatus('metric') : false
+                }
+                classNamePrefix="selectcategory"
+                placeholder="Select Metric Columns"
+                noOptionsMessage={() => {
+                  return tableInfoLoading || kpiFieldLoading
+                    ? 'Loading...'
+                    : 'No Options';
+                }}
+                onChange={(e) => {
+                  setFormdata({ ...formdata, metriccolumns: e.value });
+                  setEditedFormData({
+                    ...editedFormData,
+                    metric: e.value
+                  });
+                  if (kpiEditData?.metric !== e.value) {
+                    setNeedForCleanUp({ ...needForCleanup, metric: true });
+                  } else {
+                    const { metric, ...newItems } = needForCleanup;
+                    setNeedForCleanUp(newItems);
+                  }
+                  setErrorMsg((prev) => {
+                    return {
+                      ...prev,
+                      metriccolumns: false
+                    };
+                  });
+                }}
+              />
+              {errorMsg.metriccolumns === true ? (
+                <div className="connection__fail">
+                  <p>Select Metric Columns</p>
+                </div>
+              ) : null}
+            </div>
+            <div className="form-group">
+              <label>Aggregate by *</label>
+              <Select
+                options={aggregate}
+                value={
+                  formdata.aggregate !== ''
+                    ? {
+                        label: formdata.aggregate,
+                        value: formdata.aggregate
                       }
-                      onClick={dashboardSubmit}>
-                      <div className="btn-spinner">
-                        <div className="spinner-border" role="status">
-                          <span className="visually-hidden">Loading...</span>
-                        </div>
-                        <span>Loading...</span>
-                      </div>
-                      <div className="btn-content">
-                        <span>Create</span>
-                      </div>
-                    </button>
+                    : null
+                }
+                noOptionsMessage={() => {
+                  return tableInfoLoading || kpiFieldLoading
+                    ? 'Loading...'
+                    : 'No Options';
+                }}
+                isDisabled={
+                  data[2] === 'edit' ? editableStatus('aggregation') : false
+                }
+                classNamePrefix="selectcategory"
+                placeholder="Select Aggregate by"
+                onChange={(e) => {
+                  setFormdata({ ...formdata, aggregate: e.value });
+                  setEditedFormData({
+                    ...editedFormData,
+                    aggregation: e.value
+                  });
+                  if (kpiEditData?.aggregation !== e.value) {
+                    setNeedForCleanUp({
+                      ...needForCleanup,
+                      aggregation: true
+                    });
+                  } else {
+                    const { aggregation, ...newItems } = needForCleanup;
+                    setNeedForCleanUp(newItems);
+                  }
+                  setErrorMsg((prev) => {
+                    return {
+                      ...prev,
+                      aggregate: false
+                    };
+                  });
+                }}
+              />
+              {errorMsg.aggregate === true ? (
+                <div className="connection__fail">
+                  <p>Select Aggregate</p>
+                </div>
+              ) : null}
+            </div>
+            <div className="form-group">
+              <label>Datetime Columns *</label>
+
+              <Select
+                options={
+                  option.metricOption && option.metricOption.length !== 0
+                    ? option.metricOption
+                    : []
+                }
+                value={
+                  formdata.datetimecolumns !== '' && {
+                    label: formdata.datetimecolumns,
+                    value: formdata.datetimecolumns
+                  }
+                }
+                noOptionsMessage={() => {
+                  return tableInfoLoading || kpiFieldLoading
+                    ? 'Loading...'
+                    : 'No Options';
+                }}
+                isDisabled={
+                  data[2] === 'edit' ? editableStatus('datetime_column') : false
+                }
+                classNamePrefix="selectcategory"
+                placeholder="Select Datetime Columns"
+                onChange={(e) => {
+                  setFormdata({ ...formdata, datetimecolumns: e.value });
+                  setEditedFormData({
+                    ...editedFormData,
+                    datetime_column: e.value
+                  });
+                  if (kpiEditData?.datetime_column !== e.value) {
+                    setNeedForCleanUp({
+                      ...needForCleanup,
+                      datetime_column: true
+                    });
+                  } else {
+                    const { datetime_column, ...newItems } = needForCleanup;
+                    setNeedForCleanUp(newItems);
+                  }
+                  setErrorMsg((prev) => {
+                    return {
+                      ...prev,
+                      datetimecolumns: false
+                    };
+                  });
+                }}
+              />
+              {errorMsg.datetimecolumns === true ? (
+                <div className="connection__fail">
+                  <p>Select Date Time Columns</p>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="form-group">
+              <label>Dimensions </label>
+              <Select
+                closeMenuOnSelect={false}
+                blurInputOnSelect={false}
+                value={
+                  formdata.dimensions.length !== 0
+                    ? formdata.dimensions.map((el) => {
+                        return {
+                          label: el,
+                          value: el
+                        };
+                      })
+                    : []
+                }
+                noOptionsMessage={() => {
+                  return tableInfoLoading || kpiFieldLoading
+                    ? 'Loading...'
+                    : 'No Options';
+                }}
+                isMulti
+                options={
+                  option.metricOption && option.metricOption.length !== 0
+                    ? option.metricOption
+                    : []
+                }
+                isDisabled={
+                  data[2] === 'edit' ? editableStatus('dimensions') : false
+                }
+                classNamePrefix="selectcategory"
+                placeholder={
+                  formdata.dimensions.length === 0 && data[2] === 'edit'
+                    ? ''
+                    : 'Select Dimensions'
+                }
+                menuPlacement="top"
+                onChange={(e) => {
+                  setFormdata({
+                    ...formdata,
+                    dimensions: e.map((el) => el.value)
+                  });
+                  setEditedFormData({
+                    ...editedFormData,
+                    dimensions: e.map((el) => el.value)
+                  });
+                  if (
+                    (Array.isArray(e) &&
+                      Array.isArray(kpiEditData?.dimensions) &&
+                      e.length !== kpiEditData?.dimensions?.length) ||
+                    e.every(
+                      (val, index) =>
+                        val.value !== kpiEditData?.dimensions[index]
+                    )
+                  ) {
+                    setNeedForCleanUp({
+                      ...needForCleanup,
+                      dimensions: true
+                    });
+                  } else {
+                    const { dimensions, ...newItems } = needForCleanup;
+                    setNeedForCleanUp(newItems);
+                  }
+                  setOption({ ...option, datetime_column: e.value });
+                  setErrorMsg((prev) => {
+                    return {
+                      ...prev,
+                      dimension: false
+                    };
+                  });
+                }}
+              />
+              <div className="channel-tip">
+                <p>
+                  Select dimensions for enabling sub-dimensional analysis &
+                  drill downs
+                </p>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Dashboard *</label>
+              <Select
+                closeMenuOnSelect={false}
+                blurInputOnSelect={false}
+                isMulti
+                options={option.dashboard}
+                classNamePrefix="selectcategory"
+                placeholder={
+                  formdata.dashboardNameList.length === 0 && data[2] === 'edit'
+                    ? ''
+                    : 'Select'
+                }
+                menuPlacement="top"
+                value={
+                  formdata.dashboardNameList.length !== 0
+                    ? formdata.dashboardNameList
+                    : []
+                }
+                isDisabled={
+                  data[2] === 'edit' ? editableStatus('dashboards') : false
+                }
+                onChange={(e) => {
+                  var arr = [];
+                  e.length !== 0
+                    ? e.forEach((data) => {
+                        if (data.value === 'newdashboard') {
+                          setIsOpen(true);
+                        } else if (data.value !== 'newdashboard') {
+                          arr.push(data);
+                          setEditedFormData({
+                            ...editedFormData,
+                            dashboards: arr.map((el) => el.value)
+                          });
+                          setFormdata({
+                            ...formdata,
+                            dashboardNameList: arr
+                          });
+                        }
+                      })
+                    : onEditData(e, 'dashboards');
+
+                  setErrorMsg((prev) => {
+                    return {
+                      ...prev,
+                      dashboardNameList: false
+                    };
+                  });
+                }}
+              />
+              {errorMsg.dashboardNameList === true ? (
+                <div className="connection__fail">
+                  <p>Select Dashboard</p>
+                </div>
+              ) : null}
+            </div>
+            <div className="form-action">
+              <button
+                className={
+                  kpiSubmitLoading || kpiUpdateLoading
+                    ? 'btn black-button btn-loading'
+                    : 'btn black-button'
+                }
+                onClick={() => {
+                  handleSubmit();
+                }}>
+                <div className="btn-spinner">
+                  <div className="spinner-border" role="status">
+                    <span className="visually-hidden">Loading...</span>
                   </div>
+                  <span>Loading...</span>
+                </div>
+                <div className="btn-content">
+                  {data[2] === 'edit' ? (
+                    <span>Save Changes</span>
+                  ) : (
+                    <span>Add KPI</span>
+                  )}
+                </div>
+              </button>
+            </div>
+          </>
+          <Modal
+            isOpen={isOpen}
+            shouldCloseOnOverlayClick={false}
+            portalClassName="dashboardmodal">
+            <div className="modal-close">
+              <img src={Close} alt="Close" onClick={closeModal} />
+            </div>
+            <div className="modal-head">
+              <h3>Create New Dashboard</h3>
+            </div>
+            <div className="modal-body">
+              <div className="modal-contents">
+                <div className="form-group">
+                  <label>Dashboard Name *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Dashboard Name"
+                    onChange={(e) => {
+                      setErrorMsg({ ...errorMsg, dashboardName: false });
+                      setFormdata({
+                        ...formdata,
+                        dashboardName: e.target.value
+                      });
+                    }}
+                  />
+                  {errorMsg.dashboardName === true ? (
+                    <div className="connection__fail">
+                      <p>Enter Dashboard Name</p>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="next-step-navigate">
+                  <button className="btn white-button" onClick={closeModal}>
+                    <span>Cancel</span>
+                  </button>
+                  <button
+                    className={
+                      createDashboardLoading
+                        ? 'btn black-button btn-loading'
+                        : 'btn black-button'
+                    }
+                    onClick={dashboardSubmit}>
+                    <div className="btn-spinner">
+                      <div className="spinner-border" role="status">
+                        <span className="visually-hidden">Loading...</span>
+                      </div>
+                      <span>Loading...</span>
+                    </div>
+                    <div className="btn-content">
+                      <span>Create</span>
+                    </div>
+                  </button>
                 </div>
               </div>
-            </Modal>
-          </>
-        )}
+            </div>
+          </Modal>
+          <Modal
+            portalClassName="dashboardmodal"
+            isOpen={editModalOpen}
+            shouldCloseOnOverlayClick={false}>
+            <div className="modal-close">
+              <img
+                src={Close}
+                alt="Close"
+                onClick={() => setEditModalOpen(false)}
+              />
+            </div>
+            <div className="modal-body">
+              <div className="modal-contents">
+                <h3>All your previous data will be deleted</h3>
+                <p>Are you sure you want to proceed? </p>
+                <div className="next-step-navigate-edit-modal">
+                  <button
+                    className="btn white-button"
+                    onClick={() => setEditModalOpen(false)}>
+                    <span>Cancel</span>
+                  </button>
+                  <button
+                    className="btn black-button"
+                    onClick={() => {
+                      dispatch(getUpdatekpi(kpiId, editedFormData));
+                      setNeedForCleanUp({});
+                      setEditModalOpen(false);
+                    }}>
+                    <span>Save Changes</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Modal>
+        </>
       </>
     );
   }

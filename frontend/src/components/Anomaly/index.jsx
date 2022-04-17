@@ -7,6 +7,8 @@ import HighchartsReact from 'highcharts-react-official';
 import highchartsMore from 'highcharts/highcharts-more';
 
 import Toparrow from '../../assets/images/toparrow.svg';
+import Refresh from '../../assets/images/refresh.svg';
+import download from '../../assets/images/Download.svg';
 import Anomalygraph from '../Anomalygraph';
 import Noresult from '../Noresult';
 import AnomalyEmptyState from '../AnomalyEmptyState';
@@ -18,11 +20,17 @@ import './anomaly.scss';
 import {
   anomalyDetection,
   anomalyDrilldown,
-  getAnomalyQualityData
+  getAnomalyQualityData,
+  setRetrain
 } from '../../redux/actions';
 import store from '../../redux/store';
 import SubdimensionEmpty from '../SubdimensionEmpty';
 import EmptyDataQualityAnomaly from '../EmptyDataQualityAnomaly';
+
+import { useToast } from 'react-toast-wnm';
+import { CustomContent, CustomActions } from '../../utils/toast-helper';
+import { downloadCsv } from '../../utils/download-helper';
+import { anomalyDownloadCsv } from '../../redux/actions/Anomaly';
 
 highchartsMore(Highcharts);
 Highcharts.setOptions({
@@ -39,14 +47,21 @@ const RESET = {
   type: 'RESET_DRILL'
 };
 
+const RESET_CSV = {
+  type: 'RESET_CSV'
+};
+
 const Anomaly = ({ kpi, anomalystatus, dashboard }) => {
   const dispatch = useDispatch();
   const history = useHistory();
+  const toast = useToast();
   const [chartData, setChartData] = useState([]);
   const [subDimLoading, setSubDimloading] = useState(true);
+  const [retrainOn, setRetrainOn] = useState(false);
   const [subDimList, setSubDimList] = useState([]);
   const [drilldownCollapse, setDrilldownCollapse] = useState(false);
   const [dataQualityCollapse, setDataQualityCollapse] = useState(false);
+  const [anomalStatusInfo, setAnomalyStatusInfo] = useState(false);
   const [kpiTab, setKPITab] = useState('Overall KPI');
 
   const idRef = useRef(0);
@@ -54,16 +69,53 @@ const Anomaly = ({ kpi, anomalystatus, dashboard }) => {
 
   const KPITabs = [{ name: 'Overall KPI' }, { name: 'Sub-dimensions' }];
 
-  const { anomalyDetectionData, anomalyDrilldownData, anomalyQualityData } =
-    useSelector((state) => {
-      return state.anomaly;
-    });
+  const {
+    anomalyDetectionData,
+    anomalyDrilldownData,
+    anomalyQualityData,
+    retrain,
+    anomalyCsv
+  } = useSelector((state) => {
+    return state.anomaly;
+  });
+
+  useEffect(() => {
+    if (
+      anomalyCsv &&
+      anomalyCsv.length !== 0 &&
+      anomalyCsv.status !== 'failure'
+    ) {
+      downloadCsv(anomalyCsv, `KPI-${kpi}-anomaly-data.csv`);
+      store.dispatch(RESET_CSV);
+    } else if (
+      anomalyCsv &&
+      anomalyCsv.length !== 0 &&
+      anomalyCsv.status === 'failure'
+    ) {
+      customToast({
+        type: 'failure',
+        header: 'Failed to Download',
+        description: anomalyCsv.message
+      });
+      store.dispatch(RESET_CSV);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anomalyCsv]);
 
   useEffect(() => {
     store.dispatch(RESET_ACTION);
     getAnomaly(kpiTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kpi]);
+
+  useEffect(() => {
+    if (retrain === true) {
+      setRetrainOn(true);
+    } else {
+      setRetrainOn(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retrain]);
 
   useEffect(() => {
     if (isFirstRun.current) {
@@ -81,6 +133,7 @@ const Anomaly = ({ kpi, anomalystatus, dashboard }) => {
     }
     dispatch(anomalyDetection(kpi, tab));
   };
+
   useEffect(() => {
     let subDimesionList = [];
     if (kpiTab === 'Overall KPI') {
@@ -127,6 +180,13 @@ const Anomaly = ({ kpi, anomalystatus, dashboard }) => {
   useEffect(() => {
     if (anomalystatus && anomalystatus?.is_anomaly_setup === false) {
       history.push(`/dashboard/${dashboard}/settings/${kpi}`);
+    }
+    if (
+      anomalystatus &&
+      anomalystatus?.is_anomaly_precomputed !== true &&
+      anomalystatus !== ''
+    ) {
+      setAnomalyStatusInfo(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anomalystatus]);
@@ -386,11 +446,45 @@ const Anomaly = ({ kpi, anomalystatus, dashboard }) => {
     }
   };
 
+  const handleRetrain = () => {
+    dispatch(setRetrain(kpi));
+  };
+
+  const handleDownloadClick = () => {
+    dispatch(anomalyDownloadCsv(kpi));
+  };
+
+  const customToast = (data) => {
+    const { type, header, description } = data;
+    toast({
+      autoDismiss: true,
+      enableAnimation: true,
+      delay: type === 'success' ? '5000' : '30000',
+      backgroundColor: type === 'success' ? '#effaf5' : '#FEF6F5',
+      borderRadius: '6px',
+      color: '#222222',
+      position: 'bottom-right',
+      minWidth: '240px',
+      width: 'auto',
+      boxShadow: '4px 6px 32px -2px rgba(226, 226, 234, 0.24)',
+      padding: '17px 14px',
+      height: 'auto',
+      border: type === 'success' ? '1px solid #60ca9a' : '1px solid #FEF6F5',
+      type: type,
+      actions: <CustomActions />,
+      content: (
+        <CustomContent
+          header={header}
+          description={description}
+          failed={type === 'success' ? false : true}
+        />
+      )
+    });
+  };
+
   return (
     <>
-      {anomalystatus &&
-      anomalystatus?.is_anomaly_precomputed !== true &&
-      anomalystatus !== '' ? (
+      {retrainOn === true || anomalStatusInfo === true ? (
         <div className="dashboard-layout setup-layout-empty">
           <AnomalyEmptyState />
         </div>
@@ -401,30 +495,51 @@ const Anomaly = ({ kpi, anomalystatus, dashboard }) => {
               <div className="dashboard-layout dashboard-layout-change">
                 <div className="dashboard-container">
                   <div className="dashboard-subcategory anomaly-subcategory">
-                    <div className="time-stamp">
-                      <p>
-                        Last updated:{' '}
-                        <span>
-                          {anomalyDetectionData?.anomaly_end_date
-                            ? anomalyDetectionData?.anomaly_end_date
-                            : '-'}
-                        </span>
-                      </p>
+                    <div className="time-container">
+                      <div className="time-stamp">
+                        <p>
+                          Last Data Entry:{' '}
+                          <span>
+                            {anomalyDetectionData?.anomaly_end_date
+                              ? anomalyDetectionData?.anomaly_end_date
+                              : '-'}
+                          </span>
+                        </p>
+                      </div>
+                      <div className="time-stamp">
+                        <p>
+                          Last Scan:{' '}
+                          <span>
+                            {anomalyDetectionData?.last_run_time_anomaly
+                              ? anomalyDetectionData?.last_run_time_anomaly
+                              : '-'}
+                          </span>
+                        </p>
+                      </div>
                     </div>
-                    <div className="option-selections">
-                      {KPITabs?.length &&
-                        KPITabs.map(function (tab, i) {
-                          return (
-                            <span
-                              onClick={() => setKPITab(tab.name)}
-                              className={
-                                tab.name === kpiTab ? 'active' : 'inactive'
-                              }
-                              key={i}>
-                              {tab.name}
-                            </span>
-                          );
-                        })}
+                    <div className="option-selections-container">
+                      <div className="download-container">
+                        <div className="option-selections">
+                          {KPITabs?.length &&
+                            KPITabs.map(function (tab, i) {
+                              return (
+                                <span
+                                  onClick={() => setKPITab(tab.name)}
+                                  className={
+                                    tab.name === kpiTab ? 'active' : 'inactive'
+                                  }
+                                  key={i}>
+                                  {tab.name}
+                                </span>
+                              );
+                            })}
+                        </div>
+                        <div
+                          className="download-icon"
+                          onClick={() => handleDownloadClick()}>
+                          <img src={download} alt="icon"></img>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -441,6 +556,16 @@ const Anomaly = ({ kpi, anomalystatus, dashboard }) => {
                   ) : (
                     <div className="dashboard-layout setup-layout-empty">
                       <SubdimensionEmpty />
+                    </div>
+                  )}
+                  {kpiTab === 'Overall KPI' && (
+                    <div className="retrain-button-container">
+                      <div
+                        className="retrain-button"
+                        onClick={() => handleRetrain()}>
+                        <img src={Refresh} alt="alert-notification" />{' '}
+                        <span>Retrain Model</span>
+                      </div>
                     </div>
                   )}
                 </div>
