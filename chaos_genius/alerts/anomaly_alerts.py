@@ -42,6 +42,7 @@ from chaos_genius.databases.models.alert_model import Alert
 from chaos_genius.databases.models.kpi_model import Kpi
 from chaos_genius.databases.models.triggered_alerts_model import TriggeredAlerts
 from chaos_genius.utils.utils import jsonable_encoder
+from chaos_genius.utils.webapp_url import anomaly_dashboard_url
 
 logger = logging.getLogger(__name__)
 
@@ -566,7 +567,7 @@ class AnomalyAlertController:
             kpi_name=kpi.name,
             preview_text="Anomaly Alert",
             alert_name=self.alert.alert_name,
-            kpi_link=f"{webapp_url_prefix()}#/dashboard/0/anomaly/" f"{self.kpi_id}",
+            kpi_link=anomaly_dashboard_url(kpi_id=self.kpi_id),
             alert_dashboard_link=f"{webapp_url_prefix()}api/digest",
             overall_count=overall_count,
             subdim_count=subdim_count,

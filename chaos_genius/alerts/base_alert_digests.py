@@ -20,6 +20,7 @@ from chaos_genius.controllers.digest_controller import (
 from chaos_genius.databases.models.alert_model import Alert
 from chaos_genius.databases.models.kpi_model import Kpi
 from chaos_genius.databases.models.triggered_alerts_model import TriggeredAlerts
+from chaos_genius.utils.webapp_url import anomaly_dashboard_url
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ class AlertDigestController:
             overall_count=overall_count,
             subdim_count=subdim_count,
             alert_dashboard_link=f"{webapp_url_prefix()}api/digest",
-            kpi_link_prefix=f"{webapp_url_prefix()}#/dashboard/0/anomaly",
+            anomaly_dashboard_url=anomaly_dashboard_url,
             top_anomalies=top_anomalies_,
         )
 
