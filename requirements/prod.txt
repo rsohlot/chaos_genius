@@ -36,7 +36,7 @@ matplotlib==3.4.2
 numpy==1.22.2
 numpyencoder==0.3.0
 pandas==1.2.4
-pystan==2.19.1.1
+pystan==3.10.0
 altair==4.1.0
 statsmodels==0.12.2
 prophet==1.0.1
