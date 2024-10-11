@@ -19,5 +19,5 @@ isort==5.10.1
 pep8-naming==0.11.1
 
 # for auto-reloading celery workers when code changes
-watchdog[watchmedo]~=2.1.6
+watchdog[watchmedo]~=5.0.3
 
